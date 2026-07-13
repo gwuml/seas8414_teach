@@ -7,7 +7,7 @@ on screen. Everything hidden returns an inspectable object (``.receipt``, ``.con
 """
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 SEED = 8414
 
 from .decide import (  # noqa: E402
