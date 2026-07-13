@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seas8414-teach"
-version = "0.1.1"
-description = "Transparent teaching helpers for the SEAS-8414 phase 9/10 security-analytics notebooks: short cells, visible decisions."
+version = "0.1.2"
+description = "A transparent teaching toolkit for the SEAS-8414 security-analytics course: short cells, visible decisions, fail-closed LLM grounding."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
