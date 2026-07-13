@@ -30,6 +30,11 @@ from .methods import (  # noqa: E402
     kmeans_select,
     markov_surprise,
 )
+from .projects.attack import load_attack_ics  # noqa: E402
+from .projects.intrusion import load_nsl_kdd  # noqa: E402
+from .projects.kev import nmf_topics  # noqa: E402
+from .projects.posture import load_scorecard  # noqa: E402
+from .projects.sbom import load_sbom  # noqa: E402
 from .provenance import (  # noqa: E402
     CowrieDay,
     Provenance,
@@ -57,7 +62,8 @@ def setup() -> None:
 
 __all__ = [
     "__version__", "SEED", "seed", "setup",
-    "load_kev", "load_cowrie", "CowrieDay", "Provenance",
+    "load_kev", "load_cowrie", "load_sbom", "load_scorecard", "load_nsl_kdd",
+    "load_attack_ics", "nmf_topics", "CowrieDay", "Provenance",
     "markov_surprise", "iforest_rarity", "kmeans_select", "COWRIE_STATES",
     "decide_by_argmax", "proxy_independence", "paired_bootstrap_gate", "Decision",
     "use_house_style", "pipeline", "event_funnel", "budget_curve", "scatter",
