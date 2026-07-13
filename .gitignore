@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+
+# Notebook / data caches
+.ipynb_checkpoints/
+.cache/
+
+# OS / secrets
+.DS_Store
+.env
+*.token
