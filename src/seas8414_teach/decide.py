@@ -109,11 +109,14 @@ def decide_by_argmax(
 
 
 def proxy_independence(frame, *, proxy: str, score: str) -> tuple[bool, float]:
-    """Fairness check: is the held-out ``proxy`` genuinely independent of the ``score`` column?
+    """Non-tautology check: is the held-out ``proxy`` NOT a monotone function of the ``score``?
 
-    Returns ``(independent, correlation)``. ``independent`` is True when at least one distinct
-    score level contains both outcome classes (so the proxy is not a monotone function of the
-    score) — the invariant that keeps the comparison honest.
+    Returns ``(non_monotone, correlation)``. ``non_monotone`` is True when at least one distinct
+    score level contains both outcome classes — a *necessary* condition for a fair comparison
+    (it rules out the exact tautology where the proxy is defined from the score), but **not
+    sufficient** for independence: a proxy can be non-monotone yet still strongly correlated with
+    the score (or with one of its sub-terms). Always read the returned ``correlation`` alongside
+    the boolean, and check coupling with individual score sub-terms, not only the composite score.
     """
     grouped = frame.groupby(score)[proxy].mean()
     mixed = int(grouped.between(0, 1, inclusive="neither").sum())
