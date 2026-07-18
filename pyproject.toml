@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seas8414-teach"
-version = "0.1.3"
+version = "0.1.4"
 description = "A transparent teaching toolkit for the SEAS-8414 security-analytics course: short cells, visible decisions, fail-closed LLM grounding."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,8 +38,16 @@ dev = ["pytest>=8", "build>=1.2", "twine>=5", "nbclient>=0.9", "nbformat>=5.9"]
 Homepage = "https://github.com/gwuml/seas8414_teach"
 Repository = "https://github.com/gwuml/seas8414_teach"
 
+[tool.hatch.build]
+# Ship the SHA-pinned classroom assets (release cache + lock) so load_* runs offline on a bare
+# pip install. ~30 MB, dominated by the NSL-KDD corpus.
+artifacts = ["src/seas8414_teach/_data/**"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/seas8414_teach"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/seas8414_teach", "tests", "README.md", "LICENSE", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

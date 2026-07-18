@@ -7,7 +7,12 @@ on screen. Everything hidden returns an inspectable object (``.receipt``, ``.con
 """
 from __future__ import annotations
 
-__version__ = "0.1.2"
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+try:  # single-source the version from the installed distribution metadata (pyproject)
+    __version__ = _pkg_version("seas8414-teach")
+except PackageNotFoundError:  # not installed (e.g. running from a source checkout)
+    __version__ = "0.1.4"
 SEED = 8414
 
 from .decide import (  # noqa: E402

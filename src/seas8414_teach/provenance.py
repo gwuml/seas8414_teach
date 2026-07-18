@@ -6,11 +6,13 @@ module hides that plumbing behind ``load_*`` functions. Each returns tidy data p
 
 Discovery order for the immutable classroom bytes:
 1. ``SEAS8414_CACHE_BASE`` user cache (already-verified copy),
-2. the repo release cache (``phase09-phase10-release-cache-lock.json`` found by walking up),
+2. the release cache (``phase09-phase10-release-cache-lock.json``) — a lock reachable from CWD
+   (course repo / pre-warmed tree, walking up) or, failing that, the copy shipped as package data
+   (``seas8414_teach/_data``), so a bare ``pip install`` resolves the pinned assets offline,
 3. the declared public URL (only when not ``SEAS8414_OFFLINE`` and no cache hit).
 
-Repo-based today; a future release can ship the release cache as package data without changing
-these signatures.
+The pinned classroom assets ship in the wheel as of 0.1.4, so ``load_*`` runs offline out of the
+box; the CWD lock still takes precedence for course-repo work.
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -69,24 +72,57 @@ def _cache_base() -> Path:
     )
 
 
-def _find_release_lock() -> tuple[Path, dict[tuple[str, str], dict[str, Any]]] | None:
-    """Walk up from CWD to find and verify the release lock; return (root, entry index)."""
+def _bundled_data_root() -> Any:
+    """The release-cache assets shipped as package data (``seas8414_teach/_data``), or ``None``.
+
+    Present in a normal wheel/sdist install; absent only if the package was installed without its
+    data (e.g. a hand-trimmed build). Returns an ``importlib.resources`` traversable.
+    """
+    try:
+        root = resources.files("seas8414_teach") / "_data"
+    except (ModuleNotFoundError, AttributeError, TypeError):
+        return None
+    try:
+        return root if root.is_dir() else None
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def _is_bundled_root(root: Any) -> bool:
+    bundled = _bundled_data_root()
+    return bundled is not None and str(root) == str(bundled)
+
+
+def _read_and_index_lock(lock_path: Any, root: Any):
+    raw = lock_path.read_bytes()
+    if _sha256(raw) != RELEASE_LOCK_EXPECTED_SHA256:
+        raise ValueError(f"Release-cache lock SHA-256 mismatch at {lock_path}")
+    lock = json.loads(raw)
+    index = {(entry["project"], entry["filename"]): entry for entry in lock["entries"]}
+    return root, index
+
+
+def _find_release_lock() -> tuple[Any, dict[tuple[str, str], dict[str, Any]]] | None:
+    """Find and verify the release lock; return (root, entry index).
+
+    Prefers a lock reachable from CWD (the course repo or a pre-warmed tree, walking up); otherwise
+    falls back to the copy shipped as package data, so a bare ``pip install`` still resolves the
+    pinned classroom assets offline.
+    """
     roots = [Path.cwd(), *Path.cwd().parents]
     candidates: list[Path] = []
     for root in roots:
         candidates.append(root / RELEASE_LOCK_NAME)
         candidates.append(root / "docs" / "course" / "notebooks" / RELEASE_LOCK_NAME)
     for lock_path in candidates:
-        if not lock_path.is_file():
-            continue
-        raw = lock_path.read_bytes()
-        if _sha256(raw) != RELEASE_LOCK_EXPECTED_SHA256:
-            raise ValueError(f"Release-cache lock SHA-256 mismatch at {lock_path}")
-        lock = json.loads(raw)
-        index = {
-            (entry["project"], entry["filename"]): entry for entry in lock["entries"]
-        }
-        return lock_path.parent, index
+        if lock_path.is_file():
+            return _read_and_index_lock(lock_path, lock_path.parent)
+
+    bundled_root = _bundled_data_root()
+    if bundled_root is not None:
+        lock_path = bundled_root / RELEASE_LOCK_NAME
+        if lock_path.is_file():
+            return _read_and_index_lock(lock_path, bundled_root)
     return None
 
 
@@ -100,8 +136,8 @@ def fetch(
 ) -> tuple[bytes, Provenance]:
     """Return verified bytes for ``filename`` and its provenance.
 
-    Prefers the user cache, then the repo release cache, then the public URL (online only).
-    Every path enforces the size ceiling and SHA-256.
+    Prefers the user cache, then the release cache (repo tree or bundled package data), then the
+    public URL (online only). Every path enforces the size ceiling and SHA-256.
     """
     user_path = _cache_base() / project / filename
     if user_path.exists():
@@ -115,16 +151,19 @@ def fetch(
         root, index = located
         entry = index.get((project, filename))
         if entry is not None:
-            asset = root / entry["relative_path"]
+            # joinpath segment-by-segment so both a filesystem Path and an importlib traversable
+            # (bundled package data) resolve the relative path identically.
+            asset = root.joinpath(*entry["relative_path"].split("/"))
             raw = asset.read_bytes()
             if len(raw) != entry["bytes"] or len(raw) > max_bytes:
                 raise ValueError(f"Release-cache size mismatch for {filename}")
             if _sha256(raw) != expected_sha256 or _sha256(raw) != entry["sha256"]:
                 raise ValueError(f"Release-cache SHA-256 mismatch for {filename}")
+            source = "package-data" if _is_bundled_root(root) else "release-cache"
             user_path.parent.mkdir(parents=True, exist_ok=True)
             user_path.write_bytes(raw)
             return raw, Provenance(
-                filename, expected_sha256, len(raw), "release-cache", url,
+                filename, expected_sha256, len(raw), source, url,
                 entry.get("acquired_at_utc"),
             )
 

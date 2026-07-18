@@ -65,11 +65,10 @@ pip install "seas8414-teach[llm]"     # + the optional local model for the groun
 
 Python 3.11+. Core dependencies: numpy, pandas, scikit-learn, scipy, matplotlib, networkx.
 
-> **Loaders that download need `requests`.** The `st.load_*` / `projects.*.load_*` functions that
-> pull public data over the network import `requests` lazily. It is **not** a core dependency — add
-> it (`pip install requests`) if you want the network path. The core analysis layer below needs
-> nothing extra. See [Data & provenance](#data--provenance-how-loaders-find-their-bytes) for exactly
-> which loaders run standalone and which expect the course data cache.
+> **Batteries included.** As of 0.1.4 the SHA-pinned classroom datasets ship inside the wheel, so
+> every `load_*` runs **offline, out of the box** — no repo, no network, no manual cache warming.
+> (The network path still exists for a deliberate live refresh and imports `requests` lazily; it is
+> not a core dependency.) See [Data & provenance](#data--provenance-how-loaders-find-their-bytes).
 
 ---
 
@@ -172,45 +171,45 @@ immutable classroom bytes in this order:
 
 1. **User cache** — `$SEAS8414_CACHE_BASE/<project>/<file>` (default
    `~/.cache/seas8414-phase-projects`). A previously verified copy is reused directly.
-2. **Repo release cache** — the `phase09-phase10-release-cache-lock.json` lock, found by walking up
-   from the current directory (so it resolves when you run inside the SEAS-8414 course repo). The
-   lock is the single source of truth for each file's canonical SHA-256.
+2. **Release cache** — the `phase09-phase10-release-cache-lock.json` lock (the single source of
+   truth for each file's canonical SHA-256), resolved from **either**:
+   - a lock reachable by walking up from the current directory (so it wins when you run inside the
+     SEAS-8414 course repo), **or**
+   - the copy **shipped as package data** in the wheel (`seas8414_teach/_data`).
 3. **Public URL** — only when there is no cache hit, the loader declares a URL, `requests` is
    installed, and `SEAS8414_OFFLINE` is not `1`. The download is SHA-checked and cached.
 
-Every load returns (or attaches) a `Provenance` record — `.source` tells you which tier answered
-(`user-cache` / `release-cache` / `network`), plus `.sha256`, `.bytes`, `.url`.
+Because the assets ship in the wheel, tier 2 always resolves — so **every loader runs offline on a
+bare `pip install`.** Each load returns (or attaches) a `Provenance` record — `.source` tells you
+which tier answered (`user-cache` / `package-data` / `release-cache` / `network`), plus `.sha256`,
+`.bytes`, `.url`.
 
-### What runs standalone vs. what needs the course cache
+### What runs where — verified
 
-Because most loaders read their canonical SHA **from the release lock**, they only succeed when the
-lock is reachable (run inside the course repo) or the cache is pre-warmed. Two exceptions pin the
-SHA in code and can therefore download cold. Verified behavior from a bare `pip install` **outside**
-the repo, with `requests` installed:
+Verified from a bare `pip install seas8414-teach` in a fresh venv, **outside** the repo, with an
+empty cache and `SEAS8414_OFFLINE=1` (no network at all):
 
-| Loader | Cold (bare pip, network) | Notes |
+| Loader | Bare pip, offline | Source |
 |--------|:---:|-------|
-| **Core layer** (`decide`, `grounding`, `methods`, `figures`, `receipt`) | ✅ | No data at all — pass your own arrays/frames. |
-| `projects.attack.load_attack_ics` | ✅ | SHA pinned in code; downloads the ATT&CK-for-ICS STIX bundle. |
-| `st.load_kev` | ⚠️ needs cache | Canonical SHA comes from the release lock. |
-| `st.load_cowrie` | ⚠️ needs cache | Canonical SHA from the release lock. |
-| `projects.intrusion.load_nsl_kdd` | ⚠️ needs cache | Canonical SHA from the release lock. |
-| `projects.posture.load_scorecard` | ⚠️ needs cache | Live API + release-lock SHA. |
-| `projects.sbom.load_sbom` | ❌ cache-only | The SBOM half downloads, but the OSV advisory batch has **no public URL** — it must come from the release cache. |
+| **Core layer** (`decide`, `grounding`, `methods`, `figures`, `receipt`) | ✅ | no data at all — pass your own arrays/frames |
+| `st.load_kev`, `st.load_cowrie` | ✅ | `package-data` |
+| `projects.sbom.load_sbom` | ✅ | `package-data` (incl. the OSV batch that has no public URL) |
+| `projects.posture.load_scorecard` | ✅ | `package-data` (the pinned snapshot, not the live API) |
+| `projects.intrusion.load_nsl_kdd` | ✅ | `package-data` |
+| `projects.attack.load_attack_ics` | ✅ | `package-data` |
 
-**To run the ⚠️ / ❌ loaders**, do one of:
+Environment knobs:
 
-- **Run inside the course repo** (`gwuml/proscanx`) from a directory under
-  `docs/course/notebooks/`, where the release lock resolves automatically; or
-- **Point at a pre-warmed cache**: `export SEAS8414_CACHE_BASE=/path/to/verified/cache` (layout
-  `<base>/<project>/<file>`); or
-- **Force offline** with `SEAS8414_OFFLINE=1` to require a cache hit and get a clear error instead
-  of a silent network attempt.
+- `SEAS8414_CACHE_BASE=/path` — where verified bytes are cached (default
+  `~/.cache/seas8414-phase-projects`; layout `<base>/<project>/<file>`).
+- `SEAS8414_OFFLINE=1` — never touch the network; require a cache/bundle hit (and get a clear error
+  otherwise). With the bundled data this is the natural default for classroom use.
+- Running inside the course repo still takes precedence: a CWD-reachable lock is used before the
+  bundled copy, so course-repo edits to the release cache are honored.
 
 ```python
-from seas8414_teach import provenance
 prov = st.load_kev().attrs["provenance"]     # loaders attach/return a Provenance
-prov.source     # 'release-cache' | 'user-cache' | 'network'
+prov.source     # 'package-data' on a bare install; 'release-cache'/'user-cache'/'network' otherwise
 prov.sha256     # the verified digest
 prov.as_dict()  # JSON-safe: file, sha256, bytes, source, url, acquired_at_utc
 ```
@@ -366,15 +365,13 @@ ATT&CK-informed ICS deception coverage. **Runs standalone** (network + `requests
 
 ## Worked examples by project
 
-Each example is a complete copy-paste block. The ATT&CK one runs on a bare `pip install` (network +
-`requests`); the rest need the course data cache — run them **inside the SEAS-8414 repo** (from a
-directory under `docs/course/notebooks/`) or with a pre-warmed `SEAS8414_CACHE_BASE`. Outputs shown
-are the real values from the pinned data.
+Each example is a complete copy-paste block that runs on a bare `pip install seas8414-teach` —
+offline, no repo, no cache warming — because the pinned data ships in the wheel. Outputs shown are
+the real values from that pinned data.
 
-### ATT&CK-informed ICS deception coverage — *runs standalone*
+### ATT&CK-informed ICS deception coverage
 
 ```python
-# pip install "seas8414-teach" requests
 from seas8414_teach.projects import attack
 
 ics = attack.load_attack_ics()
@@ -386,7 +383,7 @@ result = attack.reconstruction_eval(ics, seed=8414)
 print(result)   # dict of reconstruction AP/AUC vs. baseline
 ```
 
-### SBOM dependency blast radius — *needs the course cache*
+### SBOM dependency blast radius
 
 This is the snippet from the API tour, worked through end to end:
 
@@ -412,7 +409,7 @@ print(metrics)
 #  'degree_baseline_ap': 0.191, 'degree_baseline_roc_auc': 0.571}
 ```
 
-### Exploited-vulnerability triage (KEV topics) — *needs the course cache*
+### Exploited-vulnerability triage (KEV topics)
 
 ```python
 import seas8414_teach as st
@@ -424,7 +421,7 @@ print("topics:", sorted(set(topics.labels)))
 print("seed stability (ARI):", round(topics.seed_ari, 3))   # 1.0 — labels are seed-stable
 ```
 
-### Repository posture archetypes — *needs the course cache*
+### Repository posture archetypes
 
 ```python
 from seas8414_teach.projects import posture
@@ -434,7 +431,7 @@ print(len(sc.posture), "repositories ×", len(sc.check_names), "Scorecard checks
 reference = posture.fit_reference(sc.check_matrix, components=3)
 ```
 
-### Intrusion detection under shift (NSL-KDD) — *needs the course cache*
+### Intrusion detection under shift (NSL-KDD)
 
 ```python
 from seas8414_teach.projects import intrusion
